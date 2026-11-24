@@ -8,13 +8,13 @@ const text = (p) => readFileSync(at(`vm-image/licenses/${p}`), "utf8").trimEnd()
 const out = `viaframe Linux: the image the vm pane hosts
 ===========================================
 
-This file is served with the app (third-party/viaframe-linux-NOTICE.txt). The vm pane boots a small Linux that viaframe builds with Buildroot ${lock.buildroot} (vm-image/ in
-https://github.com/johnhenry/viaframe). The image is one file, viaframe-linux.bzimage, a Linux kernel with its root file system inside.
+This file is served with the app (third-party/viaframe-linux-NOTICE.txt). The vm pane boots a small Linux that viaframe builds with Buildroot ${lock.buildroot} (the recipe is public at
+https://github.com/johnhenry/viaframe-linux). The image is one file, viaframe-linux.bzimage, a Linux kernel with its root file system inside.
 
   sha-256 of the image:                      ${lock.sha256}
   size:                                      ${lock.size} bytes
   sha-256 of the source archive:             ${lock.sourcesSha256}
-  the source archive:                        viaframe-linux-sources.tar.gz (published next to the image)
+  the source archive:                        ${lock.sourcesUrl}
 
 What is in it
 -------------
@@ -29,7 +29,7 @@ Source for the GPL parts, and a written offer
 The complete corresponding source of everything above, with the patches that were applied, the Buildroot release it was built with, the Buildroot configuration, the kernel configuration, the busybox
 fragment and the build scripts, is the file viaframe-linux-sources.tar.gz, published with the image. Rebuild the image yourself with vm-image/shell.sh vm-image/build.sh.
 
-This is also a written offer. For three years from the day you received this image, the maintainer of viaframe (https://github.com/johnhenry/viaframe) will give anyone who asks the complete
+This is also a written offer. For three years from the day you received this image, the maintainer of viaframe (https://github.com/johnhenry/viaframe-linux) will give anyone who asks the complete
 corresponding source of the GPL-licensed parts above, on a medium customarily used for software interchange, for no more than the cost of doing so.
 
 Licence texts
