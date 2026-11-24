@@ -1,0 +1,17 @@
+#!/bin/sh
+# vf-agent: the guest end of the viaframe link (hvc0, a virtio console the page holds the other end of; src/vm/link.js). One request per line:
+#   <id> <base64 of a shell command>
+# It answers with output lines "<id> o <base64 chunk>" (at most 64 KiB in all) and one "<id> x <exit code>". It runs a command only after the person has opened a wsh session
+# to this machine (the page's wsh host checks the login before a byte reaches here), and it never starts anything on its own.
+stty raw -echo 2>/dev/null
+echo "viaframe-agent 1"
+while IFS=' ' read -r id b64; do
+  case "$id" in *[!0-9]*|'') continue ;; esac
+  cmd=$(printf '%s' "$b64" | base64 -d 2>/dev/null)
+  out=/tmp/vf-out.$id
+  sh -c "$cmd" </dev/null >"$out" 2>&1
+  code=$?
+  head -c 65536 "$out" | base64 | tr -d '\n' | { read -r data || true; printf '%s o %s\n' "$id" "$data"; }
+  printf '%s x %s\n' "$id" "$code"
+  rm -f "$out"
+done
