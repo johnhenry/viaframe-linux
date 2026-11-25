@@ -1,0 +1,218 @@
+diff --git a/crates/wsh-server/src/main.rs b/crates/wsh-server/src/main.rs
+index 9ef427d..339666b 100644
+--- a/crates/wsh-server/src/main.rs
++++ b/crates/wsh-server/src/main.rs
+@@ -40,6 +40,12 @@ struct Cli {
+     #[arg(long)]
+     key: Option<String>,
+ 
++    /// viaframe: serve plain WebSocket (no TLS, no WebTransport, no certificate) on this loopback
++    /// address (ip:port) and nothing else. For a machine whose only link to its operator is a byte
++    /// pipe that something local bridges to this socket; require `[server] seal_session = "require"`.
++    #[arg(long, value_name = "ADDR")]
++    plain_ws: Option<String>,
++
+     /// Config file path
+     #[arg(long, default_value = "~/.wsh/config.toml")]
+     config: String,
+@@ -151,8 +157,22 @@ async fn main() {
+         "starting wsh-server"
+     );
+ 
++    // viaframe's plain mode: a loopback address only, no certificate at all.
++    let plain_ws: Option<std::net::SocketAddr> = match cli.plain_ws.as_deref() {
++        None => None,
++        Some(text) => match text.parse::<std::net::SocketAddr>() {
++            Ok(addr) if addr.ip().is_loopback() => Some(addr),
++            _ => {
++                error!("--plain-ws takes a loopback ip:port (for example 127.0.0.1:4422)");
++                std::process::exit(2);
++            }
++        },
++    };
++
+     // Resolve cert/key paths
+-    let (cert_path, key_path) = if cli.generate_cert {
++    let (cert_path, key_path) = if plain_ws.is_some() {
++        (None, None)
++    } else if cli.generate_cert {
+         match generate_self_signed_cert() {
+             Ok((c, k)) => {
+                 info!(cert = %c.display(), key = %k.display(), "generated self-signed certificate");
+@@ -189,12 +209,25 @@ async fn main() {
+         }
+     };
+ 
+-    // Load TLS config
+-    let tls_config = match load_tls_config(&server_config.cert_path, &server_config.key_path) {
+-        Ok(cfg) => cfg,
+-        Err(e) => {
+-            error!(error = %e, "failed to load TLS config");
+-            std::process::exit(1);
++    // viaframe: no TLS means the session itself must carry the protection: sealed, and bound to the host key.
++    if plain_ws.is_some()
++        && (server_config.seal_session != config::SealSession::Require
++            || !server_config.require_channel_binding)
++    {
++        error!("--plain-ws needs [server] seal_session = \"require\" and require_channel_binding = true (no TLS: the sealed session is the protection)");
++        std::process::exit(2);
++    }
++
++    // Load TLS config (not in plain mode)
++    let tls_config = if plain_ws.is_some() {
++        None
++    } else {
++        match load_tls_config(&server_config.cert_path, &server_config.key_path) {
++            Ok(cfg) => Some(cfg),
++            Err(e) => {
++                error!(error = %e, "failed to load TLS config");
++                std::process::exit(1);
++            }
+         }
+     };
+ 
+@@ -207,11 +240,26 @@ async fn main() {
+         }
+     };
+ 
++    // viaframe: the agent that starts this server reads the host key's fingerprint from this line.
++    if plain_ws.is_some() {
++        match wsh_server.host_fingerprint() {
++            Some(fp) => {
++                println!("wsh-host-fingerprint {fp}");
++                use std::io::Write;
++                let _ = std::io::stdout().flush();
++            }
++            None => {
++                error!("--plain-ws needs [server] host_key (the session is sealed with it)");
++                std::process::exit(2);
++            }
++        }
++    }
++
+     // Run until shutdown signal
+-    let tls_arc = Arc::new(tls_config);
++    let tls_arc = tls_config.map(Arc::new);
+ 
+     tokio::select! {
+-        result = wsh_server.run(tls_arc) => {
++        result = wsh_server.run(tls_arc, plain_ws) => {
+             if let Err(e) = result {
+                 error!(error = %e, "server error");
+                 std::process::exit(1);
+diff --git a/crates/wsh-server/src/server.rs b/crates/wsh-server/src/server.rs
+index 34f343c..018b49a 100644
+--- a/crates/wsh-server/src/server.rs
++++ b/crates/wsh-server/src/server.rs
+@@ -457,24 +457,48 @@ impl WshServer {
+         })
+     }
+ 
++    /// The hex SHA-256 of this server's host key, when it has one (`--plain-ws` prints it for the agent that starts the server).
++    pub fn host_fingerprint(&self) -> Option<String> {
++        self.identity.as_ref().map(|id| id.fingerprint.clone())
++    }
++
+     /// Start listening on both WebTransport and WebSocket.
+-    pub async fn run(self, tls_config: Arc<rustls::ServerConfig>) -> WshResult<()> {
++    ///
++    /// With `plain_ws` set (viaframe's `--plain-ws ADDR`, a loopback address) the server does no TLS and no
++    /// WebTransport: it serves WebSocket on that address and nothing else.
++    pub async fn run(
++        self,
++        tls_config: Option<Arc<rustls::ServerConfig>>,
++        plain_ws: Option<SocketAddr>,
++    ) -> WshResult<()> {
+         let server = Arc::new(self);
+ 
+         let quic_addr: SocketAddr = format!("0.0.0.0:{}", server.config.port)
+             .parse()
+             .map_err(|e| WshError::Other(format!("invalid address: {e}")))?;
+-        let ws_addr: SocketAddr = format!("0.0.0.0:{}", server.config.port)
+-            .parse()
+-            .map_err(|e| WshError::Other(format!("invalid address: {e}")))?;
++        let ws_addr: SocketAddr = match plain_ws {
++            Some(addr) => addr,
++            None => format!("0.0.0.0:{}", server.config.port)
++                .parse()
++                .map_err(|e| WshError::Other(format!("invalid address: {e}")))?,
++        };
+ 
+-        // Start WebTransport listener
+-        let (_endpoint, mut wt_rx) = webtransport::start_listener(
+-            quic_addr,
+-            &server.config.cert_path,
+-            &server.config.key_path,
+-        )
+-        .await?;
++        // Start WebTransport listener (not in plain mode: no QUIC, no certificate)
++        let _wt_keepalive;
++        let (_endpoint, mut wt_rx) = if plain_ws.is_some() {
++            let (tx, rx) = tokio::sync::mpsc::channel(1);
++            _wt_keepalive = Some(tx);
++            (None, rx)
++        } else {
++            _wt_keepalive = None;
++            let (endpoint, rx) = webtransport::start_listener(
++                quic_addr,
++                &server.config.cert_path,
++                &server.config.key_path,
++            )
++            .await?;
++            (Some(endpoint), rx)
++        };
+ 
+         // Start WebSocket listener on the same configured port over TCP/TLS.
+         // Also routes #38 Phase 2's WISP guest tunnels and reverse-connect
+diff --git a/crates/wsh-server/src/transport/websocket.rs b/crates/wsh-server/src/transport/websocket.rs
+index a460f50..f42e683 100644
+--- a/crates/wsh-server/src/transport/websocket.rs
++++ b/crates/wsh-server/src/transport/websocket.rs
+@@ -114,16 +114,28 @@ pub struct ListenerChannels {
+ /// Returns receivers that yield accepted connections, routed by request
+ /// path into the wsh Envelope protocol, a guest's WISP tunnel, or an
+ /// external WISP reverse-connect bridge request (#38 Phase 2).
++///
++/// `tls_config` is `None` only for viaframe's `--plain-ws` mode (a loopback-only listener that serves a
++/// byte pipe to the page); the caller has already checked that `bind_addr` is a loopback address.
+ pub async fn start_listener(
+     bind_addr: SocketAddr,
+-    tls_config: Arc<rustls::ServerConfig>,
++    tls_config: Option<Arc<rustls::ServerConfig>>,
+ ) -> WshResult<ListenerChannels> {
++    if tls_config.is_none() && !bind_addr.ip().is_loopback() {
++        return Err(WshError::Transport(
++            "plain WebSocket (no TLS) is served on a loopback address only".into(),
++        ));
++    }
+     let tcp_listener = TcpListener::bind(bind_addr)
+         .await
+         .map_err(|e| WshError::Transport(format!("WSS bind failed: {e}")))?;
+-    let tls_acceptor = TlsAcceptor::from(tls_config);
++    let tls_acceptor = tls_config.map(TlsAcceptor::from);
+ 
+-    info!(addr = %bind_addr, "WebSocket TLS listener started");
++    if tls_acceptor.is_some() {
++        info!(addr = %bind_addr, "WebSocket TLS listener started");
++    } else {
++        info!(addr = %bind_addr, "WebSocket listener started (plain, loopback only)");
++    }
+ 
+     let (tx, ws_rx) = mpsc::channel::<WebSocketConnection>(64);
+     let (wisp_guest_tx, wisp_guest_rx) = mpsc::channel::<WispGuestConnection>(64);
+@@ -138,9 +150,12 @@ pub async fn start_listener(
+                     let wisp_connect_tx = wisp_connect_tx.clone();
+                     let tls_acceptor = tls_acceptor.clone();
+                     tokio::spawn(async move {
+-                        match tls_acceptor.accept(stream).await {
+-                            Ok(tls_stream) => {
+-                                let boxed_stream: BoxedWsIo = Box::new(tls_stream);
++                        let accepted: Result<BoxedWsIo, std::io::Error> = match tls_acceptor {
++                            Some(acceptor) => acceptor.accept(stream).await.map(|s| Box::new(s) as BoxedWsIo),
++                            None => Ok(Box::new(stream) as BoxedWsIo),
++                        };
++                        match accepted {
++                            Ok(boxed_stream) => {
+                                 let path_slot: Arc<StdMutex<String>> =
+                                     Arc::new(StdMutex::new(String::new()));
+                                 let cb_slot = path_slot.clone();

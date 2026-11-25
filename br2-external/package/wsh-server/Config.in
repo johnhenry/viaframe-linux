@@ -1,0 +1,12 @@
+config BR2_PACKAGE_WSH_SERVER
+	bool "wsh-server"
+	depends on BR2_PACKAGE_HOST_RUSTC_TARGET_ARCH_SUPPORTS
+	select BR2_PACKAGE_HOST_RUSTC
+	help
+	  The wsh (Web Shell) server, built from johnhenry/wsh's Rust
+	  workspace with viaframe's one patch (--plain-ws: a loopback-only
+	  WebSocket listener with no TLS and no WebTransport). The vm
+	  pane's terminal logs in to it over a sealed wsh session carried
+	  on the machine's second console.
+
+	  https://github.com/johnhenry/wsh

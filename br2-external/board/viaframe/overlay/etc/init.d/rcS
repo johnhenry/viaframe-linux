@@ -10,8 +10,9 @@ mount -t tmpfs tmpfs /tmp
 mount -t tmpfs tmpfs /run
 hostname viaframe
 mount -t 9p host9p /mnt -o trans=virtio,version=9p2000.L,cache=none 2>/dev/null && say "shared folder mounted at /mnt"
+ip link set lo up 2>/dev/null # the loopback is always up: the wsh server listens on it
 if [ -e /sys/class/net/eth0 ]; then
-  ip link set lo up; ip link set eth0 up
+  ip link set eth0 up
   udhcpc -i eth0 -q -n -t 3 >/dev/null 2>&1 && say "network up on eth0"
 fi
 [ -e /dev/hvc0 ] && /usr/bin/vf-agent </dev/hvc0 >/dev/hvc0 2>&1 &

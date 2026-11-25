@@ -1,11 +1,102 @@
 #!/bin/sh
 # vf-agent: the guest end of the viaframe link (hvc0, a virtio console the page holds the other end of; src/vm/link.js). One request per line:
-#   <id> <base64 of a shell command>
-# It answers with output lines "<id> o <base64 chunk>" (at most 64 KiB in all) and one "<id> x <exit code>". It runs a command only after the person has opened a wsh session
+#   <id> <base64 of a shell command>     run it (the page's older wsh path: an exec session of wsh's in-page host)
+#   wsh <base64 of ONE ssh-ed25519 key>   start this image's own wsh server for that key only and join it to this pipe (below)
+#   ping                                  answer with the greeting
+# It answers a command with output lines "<id> o <base64 chunk>" (at most 64 KiB in all) and one "<id> x <exit code>". It runs a command only after the person has opened a wsh session
 # to this machine (the page's wsh host checks the login before a byte reaches here), and it never starts anything on its own.
+#
+# The wsh server (/usr/bin/wsh-server, johnhenry/wsh's Rust server with viaframe's one patch): started only for a `wsh` request, on 127.0.0.1:4422 with NO TLS and NO WebTransport (--plain-ws, loopback only),
+# its sessions sealed end to end and bound to its host key (the server refuses to start otherwise), logins by the one key it was given, no password login, no gateway. `nc` joins this console to that
+# socket until it closes; then the server is stopped and the agent greets again. The host key is made once per boot (/tmp/wsh/host_key.pem) and its fingerprint is announced as `wsh ok <sha-256 hex>`.
+WSH_BIN=/usr/bin/wsh-server
+WSH_HOME=/tmp/wsh
+WSH_PORT=4422
+GREETING="viaframe-agent 1"
+[ -x "$WSH_BIN" ] && GREETING="viaframe-agent 2 wsh"
+
+wsh_config() {
+  cat >"$WSH_HOME/config.toml" <<CFG
+[server]
+host_key = "$WSH_HOME/host_key.pem"
+seal_session = "require"
+require_channel_binding = true
+max_sessions = 4
+session_ttl = 3600
+idle_timeout = 600
+
+[auth]
+allow_pubkey = true
+allow_password = false
+
+[gateway]
+enabled = false
+
+# Tools the session's MCP channel offers: fixed, no arguments, read-only.
+[[mcp.tools]]
+name = "guest-info"
+description = "The kernel, uptime and memory of this machine"
+command = "uname -a; uptime; free"
+timeout_secs = 10
+
+[[mcp.tools]]
+name = "guest-disk"
+description = "Disk space of this machine's file systems"
+command = "df -h"
+timeout_secs = 10
+
+[[mcp.tools]]
+name = "guest-processes"
+description = "The processes running in this machine"
+command = "ps"
+timeout_secs = 10
+CFG
+}
+
+# wsh_start <base64 key>: sets WSH_PID and WSH_FP, or prints `wsh err <why>` and returns 1.
+wsh_start() {
+  [ -x "$WSH_BIN" ] || { echo "wsh err this image has no wsh server"; return 1; }
+  key=$(printf '%s' "$1" | base64 -d 2>/dev/null)
+  case "$key" in ssh-ed25519\ *) ;; *) echo "wsh err not an ssh-ed25519 key"; return 1 ;; esac
+  case "$key" in *[!\ -~]*) echo "wsh err the key has odd characters"; return 1 ;; esac
+  ip link set lo up 2>/dev/null
+  mkdir -p "$WSH_HOME/.wsh" && chmod 700 "$WSH_HOME" "$WSH_HOME/.wsh"
+  printf '%s\n' "$key" >"$WSH_HOME/.wsh/authorized_keys"
+  wsh_config
+  : >"$WSH_HOME/out"; : >"$WSH_HOME/err"
+  # Its working folder is its home: the files a session sends and fetches (relative paths) and the shells it opens agree on it.
+  (cd "$WSH_HOME" && HOME="$WSH_HOME" exec "$WSH_BIN" --plain-ws "127.0.0.1:$WSH_PORT" --config "$WSH_HOME/config.toml" >"$WSH_HOME/out" 2>"$WSH_HOME/err") &
+  WSH_PID=$!
+  i=0
+  WSH_FP=""
+  while [ "$i" -lt 150 ]; do
+    WSH_FP=$(sed -n 's/^wsh-host-fingerprint \([0-9a-f]\{64\}\)$/\1/p' "$WSH_HOME/out" 2>/dev/null | head -n 1)
+    if [ -n "$WSH_FP" ] && grep -q "0100007F:$(printf '%04X' "$WSH_PORT") 00000000:0000 0A" /proc/net/tcp 2>/dev/null; then return 0; fi
+    kill -0 "$WSH_PID" 2>/dev/null || break
+    i=$((i + 1))
+    sleep 1
+  done
+  why=$(cat "$WSH_HOME/out" "$WSH_HOME/err" 2>/dev/null | sed "s/\x1b\[[0-9;]*m//g" | grep -i -E "error|panic" | tail -n 1 | tr -c ' -~' ' ' | cut -c1-120)
+  kill "$WSH_PID" 2>/dev/null
+  echo "wsh err the server did not start: ${why:-no reason}"
+  return 1
+}
+
 stty raw -echo 2>/dev/null
-echo "viaframe-agent 1"
+echo "$GREETING"
 while IFS=' ' read -r id b64; do
+  case "$id" in
+    ping) echo "$GREETING"; continue ;;
+    wsh)
+      if wsh_start "$b64"; then
+        echo "wsh ok $WSH_FP"
+        nc 127.0.0.1 "$WSH_PORT"
+        kill "$WSH_PID" 2>/dev/null
+        wait "$WSH_PID" 2>/dev/null
+        echo "$GREETING"
+      fi
+      continue ;;
+  esac
   case "$id" in *[!0-9]*|'') continue ;; esac
   cmd=$(printf '%s' "$b64" | base64 -d 2>/dev/null)
   out=/tmp/vf-out.$id

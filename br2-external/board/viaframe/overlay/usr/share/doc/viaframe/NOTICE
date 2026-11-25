@@ -1,16 +1,19 @@
 viaframe Linux (the vm pane's hosted image)
 ===========================================
-Built by viaframe's vm-image/build.sh with Buildroot 2026.02.3. Components:
+Built by the recipe at https://github.com/johnhenry/viaframe-linux (vm-image/build.sh, Buildroot 2026.02.3). Components:
   Linux kernel 6.19.14        GPL-2.0 (with the Linux syscall note)
   busybox 1.37.0              GPL-2.0
   musl libc 1.2.6             MIT
+  wsh-server (johnhenry/wsh, tag rust-v0.18.0, with one patch: --plain-ws)
+                              MIT, with the Rust crates it is built from (each under MIT, Apache-2.0, ISC or BSD terms; their licence files are in the sources archive)
   vf-agent (a shell script)   MIT, part of viaframe
 
 The corresponding source of every package above, with the patches applied, the Buildroot release and
 this image's build files, is the file viaframe-linux-sources.tar.gz published next to the image
-(the same release as the image's own file). This is also a written offer: for three years from
-the date you received this image, the maintainer of viaframe (https://github.com/johnhenry/viaframe)
-will give you, on request, the complete corresponding source of the GPL-licensed parts on a
-medium customarily used for software interchange, for no more than the cost of doing so.
+(the same release as the image's own file; https://github.com/johnhenry/viaframe-linux/releases). This is
+also a written offer: for three years from the date you received this image, the maintainer of the recipe
+(https://github.com/johnhenry/viaframe-linux) will give you, on request, the complete corresponding
+source of the GPL-licensed parts on a medium customarily used for software interchange, for no more than
+the cost of doing so.
 The full licence texts are in the sources archive (licenses/) and at the viaframe app's
 third-party/viaframe-linux-NOTICE.txt.

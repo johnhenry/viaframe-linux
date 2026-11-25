@@ -1,0 +1,2 @@
+
+source "$BR2_EXTERNAL_VIAFRAME_PATH/package/wsh-server/Config.in"

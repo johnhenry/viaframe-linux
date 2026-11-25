@@ -21,6 +21,7 @@ What is in it
   Linux kernel 6.19.14        GPL-2.0 with the Linux syscall note       https://www.kernel.org/
   busybox 1.37.0              GPL-2.0                                   https://www.busybox.net/
   musl libc 1.2.6             MIT                                       https://musl.libc.org/
+  wsh-server                  MIT (johnhenry/wsh tag rust-v0.18.0 with one patch, --plain-ws), with the Rust crates it is built from, each under MIT, Apache-2.0, ISC or BSD terms; their licence files are in the sources archive (the vendored crates)   https://github.com/johnhenry/wsh
   vf-agent (a shell script)   MIT, part of viaframe
   Built with GCC 14.3.0 (the compiler's runtime library is under the GCC Runtime Library Exception) and Buildroot ${lock.buildroot} (GPL-2.0-or-later).
 

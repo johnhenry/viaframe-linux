@@ -2,8 +2,8 @@
 
 A minimal Linux image for [viaframe](https://viaframe.johnhenry.me)'s vm pane, which runs it in the browser with [v86](https://github.com/copy/v86) (32-bit x86).
 
-- **What's in it:** Buildroot 2026.02.3, Linux 6.19.14 (i586, tinyconfig plus `br2-external/board/viaframe/linux.fragment`), busybox 1.37.0 and musl 1.2.6, plus `vf-agent`, a small shell script that answers on `/dev/hvc0`. 9p (virtio) is used for the shared folder, with a serial console and a VGA console.
-- **Output:** one `viaframe-linux.bzimage` (about 2.5 MB) with the root file system inside. It boots to a shell in about 3 s in v86.
+- **What's in it:** Buildroot 2026.02.3, Linux 6.19.14 (i586, tinyconfig plus `br2-external/board/viaframe/linux.fragment`), busybox 1.37.0, musl 1.2.6 and the wsh server (rust-v0.18.0, loopback-only `--plain-ws` patch), plus `vf-agent`, which answers on `/dev/hvc0` and starts the wsh server for a terminal session. 9p (virtio) is used for the shared folder, with a serial console and a VGA console.
+- **Output:** one `viaframe-linux.bzimage` (about 5.7 MB) with the root file system inside. It boots to a shell in about 3 s in v86.
 - **Reproducible:** `BR2_REPRODUCIBLE=y` and `SOURCE_DATE_EPOCH` are set. Two clean builds in different folders give the same image hash.
 
 ## Build

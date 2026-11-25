@@ -1,0 +1,5 @@
+# Locally calculated (the GitHub archive of the tag rust-v0.18.0, commit 6a10311228b5c8c2a01095506b095ab676e1148b)
+sha256  d44c0837cbf2cfd4799bed92d36db5e83f8c689d0cf92200a5c8d45b79761251  wsh-rust-v0.18.0.tar.gz
+sha256  ee45f90e512dbb6e8bea4c86192a20bfcf9cce309c565efbe816a3f567c8f2ba  LICENSE
+# Locally calculated (Buildroot's `cargo vendor` of the Cargo.lock in that tag: every crate at the locked version)
+sha256  e1d2071d5c199585700e13e49295c3abb6f186a69d4c1a35ea66f5bd92b64159  wsh-server-rust-v0.18.0-cargo4.tar.gz
